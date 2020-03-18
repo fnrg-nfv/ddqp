@@ -1,0 +1,4 @@
+/data/
+/src/__pycache__
+/src/sfcbased/__pycache__
+/src/vnfbased/__pycache__
