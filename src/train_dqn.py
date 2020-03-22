@@ -1,6 +1,5 @@
 from tqdm import tqdm
 import torch.optim as optim
-import os
 from generate_topo import *
 
 # parameters with rl
@@ -14,8 +13,9 @@ elif pf == "Linux":
     TARGET_FILE = "model/target"
     EXP_REPLAY_FILE = "model/replay.pkl"
     TRACE_FILE = "model/trace.pkl"
+else:
+    raise RuntimeError('Platform unsupported')
 
-#todo adjust the batch size and replay size
 GAMMA = 0.5
 BATCH_SIZE = 32 # start with small（32）, then go to big
 
@@ -31,7 +31,6 @@ TRAIN_INTERVAL = 1
 ACTION_SPACE = generate_action_space(size=topo_size)
 ACTION_LEN = len(ACTION_SPACE)
 DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-DEVICE = torch.device("cpu")
 ITERATIONS = 10000
 DOUBLE = True
 TEST = True
@@ -109,7 +108,7 @@ if __name__ == "__main__":
                     state, _ = env.get_state(model=model, sfc_index=i)
                     decision = deploy_sfc_item(model, i, decision_maker, cur_time, state, test_env)
                     action = DQNAction(decision.active_server, decision.standby_server).get_action()
-                    reward = env.get_reward(model, i, decision, test_env)
+                    reward = env.get_reward(model, i)
                     next_state, done = env.get_state(model=model, sfc_index=i + 1)
 
                     exp = Experience(state=state, action=action, reward=reward, done=done, new_state=next_state)
@@ -124,7 +123,7 @@ if __name__ == "__main__":
                     if idx % TRAIN_INTERVAL == 0:
                         optimizer.zero_grad()
                         batch = decision_maker.buffer.sample(BATCH_SIZE)
-                        loss_t = calc_loss(batch, decision_maker.net, decision_maker.tgt_net, gamma=GAMMA, action_space=ACTION_SPACE, double=DOUBLE, device=DEVICE)
+                        loss_t = calc_loss(batch, decision_maker.net, decision_maker.tgt_net, gamma=GAMMA, nodes_number=topo_size, double=DOUBLE, device=DEVICE)
                         loss_t.backward()
                         # print(decision_maker.net.fc7.weight.data)
                         optimizer.step()

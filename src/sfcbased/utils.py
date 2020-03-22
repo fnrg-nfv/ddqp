@@ -1,10 +1,8 @@
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
-import csv
+import matplotlib.pyplot as plt
 import collections
-from ast import literal_eval
 from sfcbased.model import *
 
 
@@ -13,15 +11,19 @@ class Action:
 
 
 class Environment:
-    pass
-
-
-class NormalEnvironment(Environment):
-    def get_reward(self, model: Model, sfc_index: int, decision: Decision, test_env: TestEnv):
+    def get_reward(self, model: Model, sfc_index: int):
         return 0
 
     def get_state(self, model: Model, sfc_index: int):
-        return []
+        return (), False
+
+
+class NormalEnvironment(Environment):
+    def get_reward(self, model: Model, sfc_index: int):
+        return 0
+
+    def get_state(self, model: Model, sfc_index: int):
+        return (), False
 
 
 Experience = collections.namedtuple('Experience', field_names=['state', 'action', 'reward', 'done', 'new_state'])
@@ -29,7 +31,7 @@ Experience = collections.namedtuple('Experience', field_names=['state', 'action'
 
 class ExperienceBuffer:
     """
-    Experience buffer class
+    experience buffer class
     """
 
     def __init__(self, capacity: int):
@@ -40,17 +42,19 @@ class ExperienceBuffer:
 
     def append(self, experience: Experience):
         """
-        Append an experience item
+        append an experience item
+
         :param experience: experience item
-        :return: nothing
+        :return: None
         """
         self.buffer.append(experience)
 
     def sample(self, batch_size: int):
         """
-        Sample a batch from this buffer
+        sample a batch from this buffer
+
         :param batch_size: sample size
-        :return: batch: List
+        :return: ()
         """
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         states, actions, rewards, dones, next_states = zip(*[self.buffer[idx] for idx in indices])
@@ -59,49 +63,24 @@ class ExperienceBuffer:
 
 def fanin_init(size, fanin: float, device: torch.device = torch.device("cpu")):
     """
-    Init weights
+    init weights
+
     :param size: tensor size
-    :param fanin:
-    :return:
+    :param fanin: range
+    :param device: computing device
+    :return: torch.Tensor
     """
     v = 1. / np.sqrt(fanin)
     return torch.Tensor(size).uniform_(-v, v).to(device)
 
 
-def printAction(action, window):
-    sum_list = []
-    i = 0
-    while i < len(action):
-        sum_list.append(sum(action[i: i + window: 1]) / window)
-        i = i + window
-    plt.plot(sum_list)
-    plt.show()
-
-
-def readDataset(path):
-    data = []
-    dataset = csv.reader(open(path, encoding='utf_8_sig'), delimiter=',')
-    for rol in dataset:
-        data.append(rol)
-    data = data[1:len(data):1]
-    for i in range(len(data)):
-        data[i][0] = literal_eval(data[i][0])
-        data[i][1] = literal_eval(data[i][1])
-        data[i][3] = literal_eval(data[i][3])
-        data[i][2] = float(data[i][2])
-    return data
-
-
-def formatnum(x, pos):
-    return '$%.1f$x$10^{4}$' % (x / 10000)
-
-
 def plot_action_distribution(action_list: List, num_nodes: int):
     """
-    Plot the distribution of actions
+    plot the distribution of actions
+
     :param action_list: list of actions
-    :param number of nodes
-    :return: nothing, just plot
+    :param num_nodes: number of nodes
+    :return: None
     """
     fig = plt.figure()
     ax1 = fig.add_subplot(projection='3d')
@@ -120,37 +99,34 @@ def plot_action_distribution(action_list: List, num_nodes: int):
     ax1.bar3d(x, y, bottom, width, depth, data, shade=True)
     plt.show()
 
-def plotActionTrace(action_trace):
-    for key in action_trace.keys():
-        plt.plot(action_trace[key], label=str(int(key)))
-    plt.xlabel("Iterations")
-    plt.ylabel("Action")
-    plt.title("Agent's Output with Time")
-    plt.ylim((0, 100000))
-    plt.grid()
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
 
 def report(model: Model):
+    """
+    report stats
+
+    :param model: model
+    :return: ()
+    """
     fail_rate = model.calculate_fail_rate()
     real_fail_rate = Monitor.calculate_real_fail_rate()
     throughput = model.calculate_throughput()
-    service_time = model.calculate_service_time()
+    service_availability = model.calculate_service_availability()
     total_reward = model.calculate_total_reward()
     accept_rate = model.calculate_accept_rate()
+    accept_num = model.calculate_accepted_number()
     # server_rate = model.calculate_server_occupied_rate()
     # link_rate = model.calculate_link_occupied_rate()
 
     print("fail rate: ", fail_rate)
     print("real fail rate: ", real_fail_rate)
     print("throughput: ", throughput)
-    print("service time: ", service_time)
+    print("service availability: ", service_availability)
     print("total reward: ", total_reward)
+    print("accept num: ", accept_num)
     print("accept rate: ", accept_rate)
     # print("server rate: ", server_rate)
     # print("link rate: ", link_rate)
-    return fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_rate
+    return fail_rate, real_fail_rate, throughput, service_availability, total_reward, accept_num, accept_rate
 
 
 def main():

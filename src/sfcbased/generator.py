@@ -11,29 +11,27 @@ fig.set_tight_layout(False)
 
 def generate_action_space(size: int):
     """
-    Generate action space which contains all actions
-    :param size: space size
-    :return: action space
+    generate action space which contains all actions
+
+    :param size: number of nodes
+    :return: [(int, int)] action space
     """
-    action_space = []
-    for i in range(size):
-        for j in range(size):
-            action_space.append([i, j])
-    return action_space
+    return [(i, j) for i in range(size) for j in range(size)]
 
 
 def generate_topology(size: int = 100):
     """
-    Function used to generate topology.
-    Mainly with three resources: computing resources, bandwidth resources and latency resources.
-    Make sure the whole network is connected
-    Notices:
-    1. active: the resources occupied by active instance
-    2. reserved: the resources reserved by stand-by instance
-    3. max_sbsfc_index: the index of stand-by sfc which has largest reservation, only for MaxReservation
-    4. sbsfcs: the stand=by sfc deployed on this server(not started)
-    :param size: node number
-    :return: topology
+    function used to generate topology
+
+    mainly with three resources: computing resources, bandwidth resources and latency resources
+    notices:
+    1. active: double the resources occupied by active instance
+    2. reserved: double the resources reserved by standby instance
+    3. max_sbsfc_index: int the index of standby sfc which has largest reservation, only for MaxReservation
+    4. sbsfcs: [int] the index of standby instance deployed on this server(not started)
+
+    :param size: node numbers
+    :return: nx.Graph topology
     """
     topo = nx.Graph()
     cs_low = 20000
@@ -68,29 +66,18 @@ def generate_topology(size: int = 100):
 
 def generate_sfc_list(topo: nx.Graph, process_capacity: int, size: int = 100, duration: int = 100, jitter: bool = True):
     """
-    Generate specified number SFCs
+    generate specified number SFCs
+
     :param topo: network topology(used to determine the start server and the destination server of specified SFC)
+    :param process_capacity: process capacity in each time slot
     :param size: the total number SFCs(not exactly)
     :param duration: arriving SFCs duration
-    :return: SFC list
+    :param jitter: if sfc
+    :return: [SFC]
     """
     sfc_list = []
     nodes_len = len(topo.nodes)
-
-    # list of sample in increasing order
-    each = size // duration
-    min_each = each * 2
-    sfc_duration = [0 for _ in range(duration)]
-    for time in range(duration):
-        randint = random.randint(0, min_each)
-        sfc_duration[time] = randint
-
-    timeslot_list = []
-    for time in range(duration):
-        for i in range(sfc_duration[time]):
-            # timeslot_list.append(random.uniform(time, time + 1))
-            timeslot_list.append(random.uniform(0, duration))
-
+    timeslot_list = [random.uniform(0, duration) for _ in range(size)]
     timeslot_list.sort()
 
     # generate each sfc
@@ -107,24 +94,22 @@ def generate_sfc_list(topo: nx.Graph, process_capacity: int, size: int = 100, du
 
     if jitter:
         for i in range(len(timeslot_list)):
-            computing_resource = random.randint(cs_low, cs_high) # 5625
-            tp = random.randint(tp_low, tp_high) # 80
-            latency = random.randint(latency_low, latency_high) # 20
+            computing_resource = random.uniform(cs_low, cs_high) # 5625
+            tp = random.uniform(tp_low, tp_high) # 80
+            latency = random.uniform(latency_low, latency_high) # 20
             update_tp = 0.001 * computing_resource
-            update_tp = 0
             process_latency = random.uniform(process_latency_low, process_latency_high) # 1.294
             TTL = random.randint(TTL_low, TTL_high)  # sfc's time to live
             s = random.randint(1, nodes_len - 1)
             d = random.randint(1, nodes_len - 1)
             sfc_list.append(SFC(computing_resource, tp, latency, update_tp, process_latency, s, d, timeslot_list[i], TTL))
     else:
+        computing_resource = (cs_low + cs_high) / 2  # 5625
+        tp = (tp_low + tp_high) / 2  # 80
+        latency = (latency_low + latency_high) / 2  # 20
+        update_tp = 0.001 * computing_resource
+        process_latency = (process_latency_low + process_latency_high) / 2  # 1.294
         for i in range(len(timeslot_list)):
-            computing_resource = (cs_low + cs_high) // 2 # 5625
-            tp = (tp_low + tp_high) // 2 # 80
-            latency = (latency_low + latency_high) / 2 # 20
-            update_tp = 0.001 * computing_resource
-            update_tp = 0
-            process_latency = (process_latency_low + process_latency_high) / 2 # 1.294
             TTL = random.randint(TTL_low, TTL_high)  # sfc's time to live
             s = random.randint(1, nodes_len - 1)
             d = random.randint(1, nodes_len - 1)
@@ -135,11 +120,12 @@ def generate_sfc_list(topo: nx.Graph, process_capacity: int, size: int = 100, du
 
 def generate_model(topo_size: int = 100, sfc_size: int = 100, duration: int = 100, process_capacity: int = 10):
     """
-    Function used to generate specified number nodes in network topology and SFCs in SFC list
+    function used to generate specified number nodes in network topology and SFCs in SFC list
+
     :param topo_size: nodes number in network topology
     :param sfc_size: SFCs number in SFC list
     :param duration: Duration of model
-    :return: Model object
+    :return: Model model
     """
     topo = generate_topology(size=topo_size)
     sfc_list = generate_sfc_list(topo=topo, size=sfc_size, duration=duration, process_capacity=process_capacity)
@@ -148,34 +134,26 @@ def generate_model(topo_size: int = 100, sfc_size: int = 100, duration: int = 10
 
 def generate_failed_instances_time_slot(model: Model, time: int):
     """
-    Random generate failed instances, for:
+    random generate failed instances
+
+    random generate failed instances which are:
     1. either active or stand-by instance is running
     2. can't expired in this time slot
-    Consider two ways for generating failed instances:
-    [×] 1. if the failed instances are decided by server, the instances running on this server will all failed and we can't decide whether our placement is good or not
-    [√] 2. if the failed instances are dicided by themselves, then one running active instance failed will make its stand-by instance started, this will occupy the resources
-    on the server which this stand-by instance is placed, and influence other stand-by instances, so we use this.
+
     :param model: model
     :param time: current time
-    :param error_rate: error rate
-    :return: list of instance
+    :return: [Instance] list of instance
     """
-    servers = []
     nodes = model.topo.nodes(data=True)
-
-    for i in range(len(nodes)):
-        node = nodes[i]
-        if np.random.random() < node['fail_rate']:
-            servers.append(i)
-
+    down_servers = [i for i in range(len(nodes)) if np.random.random() < nodes[i]['fail_rate']]
     instances = []
     for i in range(len(model.sfc_list)):
         cur_sfc = model.sfc_list[i]
-        if cur_sfc.state == State.Normal and cur_sfc.time + cur_sfc.TTL >= time and cur_sfc.active_sfc.server in servers:
+        if cur_sfc.state == State.Normal and cur_sfc.time + cur_sfc.TTL >= time and cur_sfc.active_sfc.server in down_servers:
             instances.append(Instance(i, True))
-        if cur_sfc.state == State.Backup and cur_sfc.time + cur_sfc.TTL >= time and cur_sfc.standby_sfc.server in servers:
+        if cur_sfc.state == State.Backup and cur_sfc.time + cur_sfc.TTL >= time and cur_sfc.standby_sfc.server in down_servers:
             instances.append(Instance(i, False))
-    return instances
+    return tuple(instances)
 
     # random fail
     # assert error_rate <= 1

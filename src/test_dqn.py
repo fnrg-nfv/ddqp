@@ -29,6 +29,7 @@ if __name__ == "__main__":
     service_times = []
     total_rewards = []
     accept_rates = []
+    accept_nums = []
     real_fail_rate = 0
     for it in range(0, ITERATIONS):
         action_list = []
@@ -64,15 +65,17 @@ if __name__ == "__main__":
         # model.print_start_and_down()
         plot_action_distribution(action_list, num_nodes=topo_size)
 
-        fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_rate = report(model)
+        fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_num, accept_rate = report(model)
         fail_rates.append(fail_rate)
         throughputs.append(throughput)
         service_times.append(service_time)
         total_rewards.append(total_reward)
         accept_rates.append(accept_rate)
+        accept_nums.append(accept_num)
     print("avg fail rate: ", sum(fail_rates)/len(fail_rates))
     print("avg real fail rate: ", real_fail_rate)
     print("avg throughput: ", sum(throughputs)/len(throughputs))
     print("avg service time: ", sum(service_times)/len(service_times))
     print("avg total reward: ", sum(total_rewards)/len(total_rewards))
+    print("avg accept nums: ", sum(accept_nums) / len(accept_nums))
     print("avg accept rate: ", sum(accept_rates)/len(accept_rates))

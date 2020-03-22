@@ -20,7 +20,7 @@ env = NormalEnvironment()
 for cur_time in tqdm(range(0, duration)):
     failed_instances = generate_failed_instances_time_slot(model, cur_time)
     # failed_instances = []
-    state = env.get_state(model, 0)
+    state, _ = env.get_state(model, 0)
     process_time_slot(model, decision_maker, cur_time, test_env, state, failed_instances)
 
 # Monitor.print_log()

@@ -1,5 +1,4 @@
 from tqdm import tqdm
-import os
 import torch.optim as optim
 from generate_topo import *
 from train_dqn import GAMMA, EPSILON_DECAY, EPSILON_FINAL, EPSILON_START, EPSILON, ACTION_SPACE, DEVICE, ACTION_LEN, DOUBLE
@@ -61,7 +60,7 @@ if __name__ == "__main__":
     for it in tqdm(range(TRAIN_ITERATIONS)):
         optimizer.zero_grad()
         batch = decision_maker.buffer.sample(BATCH_SIZE)
-        loss_t = calc_loss(batch, decision_maker.net, decision_maker.tgt_net, gamma=decision_maker.gamma, action_space=ACTION_SPACE, double=DOUBLE, device=DEVICE)
+        loss_t = calc_loss(batch, decision_maker.net, decision_maker.tgt_net, gamma=decision_maker.gamma, nodes_number=topo_size, double=DOUBLE, device=DEVICE)
         loss_t.backward()
         optimizer.step()
         decision_maker.tgt_net.load_state_dict(decision_maker.net.state_dict())

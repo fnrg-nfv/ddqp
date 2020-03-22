@@ -3,11 +3,6 @@ from sfcbased.utils import *
 from sfcbased.model import *
 
 
-@unique
-class Space(Enum):
-    Unlimit = 0
-
-
 class DQN(nn.Module):
     def __init__(self, state_len: int, action_len: int, tgt: bool, device: torch.device):
         super(DQN, self).__init__()
@@ -100,145 +95,9 @@ class DQN(nn.Module):
 
 
 class DQNDecisionMaker(DecisionMaker):
-    """
-    This class is denoted as a decision maker used reinforcement learning
-    """
-    def verify_standby_for_tgt(self, model: Model, cur_sfc_index: int, active_server_index: int, cur_server_index: int,
-                       test_env: TestEnv):
-        """
-        Verify if current stand-by sfc can be put on current server based on following three principles
-        1. if the remaining computing resource is still enough for this sfc
-        2. if available paths for updating still exist
-        Both these three principles are met can return true, else false
-        When the active instance is deployed, the topology will change and some constraints may not be met, but this is just a really small case so that we don't have to consider it.
-        :param test_env:
-        :param model: model
-        :param cur_sfc_index: current sfc index
-        :param active_server_index: active server index
-        :param cur_server_index: current server index
-        :return: true or false
-        """
-        assert test_env != TestEnv.NoBackup
-        # principle 1
-        if test_env == TestEnv.Aggressive:
-            if model.topo.nodes[cur_server_index]["computing_resource"] < model.sfc_list[
-                cur_sfc_index].computing_resource:
-                return False
-        if test_env == TestEnv.Normal or test_env == TestEnv.MaxReservation:
-            if model.topo.nodes[cur_server_index]["computing_resource"] - model.topo.nodes[cur_server_index]["active"] < \
-                    model.sfc_list[cur_sfc_index].computing_resource:
-                return False
-        if test_env == TestEnv.FullyReservation:
-            if model.topo.nodes[cur_server_index]["computing_resource"] - model.topo.nodes[cur_server_index]["active"] - \
-                    model.topo.nodes[cur_server_index]["reserved"] < model.sfc_list[cur_sfc_index].computing_resource:
-                return False
-
-        # principle 2
-        for path in nx.all_shortest_paths(model.topo, active_server_index, cur_server_index):
-            if self.is_path_throughput_met(model, path, model.sfc_list[cur_sfc_index].update_tp, SFCType.Active,
-                                           test_env):
-                return True
-        return False
-
-
-    def verify_standby(self, model: Model, cur_sfc_index: int, active_server_index: int, cur_server_index: int,
-                       test_env: TestEnv):
-        """
-        Verify if current stand-by sfc can be put on current server based on following three principles
-        1. if the remaining computing resource is still enough for this sfc
-        2. if available paths for updating still exist
-        3. if available paths still exist
-        Both these three principles are met can return true, else false
-        When the active instance is deployed, the topology will change and some constraints may not be met, but this is just a really small case so that we don't have to consider it.
-        :param test_env:
-        :param model: model
-        :param cur_sfc_index: current sfc index
-        :param active_server_index: active server index
-        :param cur_server_index: current server index
-        :return: true or false
-        """
-        assert test_env != TestEnv.NoBackup
-        # principle 1
-        if test_env == TestEnv.Aggressive:
-            if model.topo.nodes[cur_server_index]["computing_resource"] < model.sfc_list[
-                cur_sfc_index].computing_resource:
-                return False
-        if test_env == TestEnv.Normal or test_env == TestEnv.MaxReservation:
-            if model.topo.nodes[cur_server_index]["computing_resource"] - model.topo.nodes[cur_server_index]["active"] < \
-                    model.sfc_list[cur_sfc_index].computing_resource:
-                return False
-        if test_env == TestEnv.FullyReservation:
-            if model.topo.nodes[cur_server_index]["computing_resource"] - model.topo.nodes[cur_server_index]["active"] - \
-                    model.topo.nodes[cur_server_index]["reserved"] < model.sfc_list[cur_sfc_index].computing_resource:
-                return False
-
-        # principle 2
-        principle2 = False
-        for path in nx.all_shortest_paths(model.topo, active_server_index, cur_server_index):
-            if self.is_path_throughput_met(model, path, model.sfc_list[cur_sfc_index].update_tp, SFCType.Active,
-                                           test_env):
-                principle2 = True
-                break
-        if not principle2:
-            return False
-
-        # principle 3
-        for path_s2c in nx.all_shortest_paths(model.topo, model.sfc_list[cur_sfc_index].s, cur_server_index):
-            if self.is_path_throughput_met(model, path_s2c, model.sfc_list[cur_sfc_index].tp, SFCType.Standby,
-                                           test_env):
-                for path_c2d in nx.all_shortest_paths(model.topo, cur_server_index, model.sfc_list[cur_sfc_index].d):
-                    if self.is_path_latency_met(model, path_s2c, path_c2d,
-                                                model.sfc_list[cur_sfc_index].latency - model.sfc_list[
-                                                    cur_sfc_index].process_latency) and self.is_path_throughput_met(
-                        model,
-                        path_c2d,
-                        model.sfc_list[
-                            cur_sfc_index].tp,
-                        SFCType.Standby, test_env):
-                        return True
-        return False
-
-    def narrow_action_index_set(self, model: Model, cur_sfc_index: int, test_env: TestEnv):
-        """
-        Used to narrow available decision set
-        :param test_env: test env
-        :param model: model
-        :param cur_sfc_index: cur processing sfc index
-        :return: action index sets
-        """
-        action_index_set = []
-        for i in range(len(model.topo.nodes)):
-            if not self.verify_active(model, cur_sfc_index, i, test_env):
-                continue
-            if test_env == TestEnv.NoBackup:
-                action_index_set.append(i)
-                continue
-            for j in range(len(model.topo.nodes)):
-                if i != j and self.verify_standby(model, cur_sfc_index, i, j, test_env):
-                    action_index_set.append(i * len(model.topo.nodes) + j)
-        return action_index_set
-
-    def narrow_action_index_set_for_tgt(self, model: Model, cur_sfc_index: int, test_env: TestEnv):
-        """
-        Used to narrow available decision set
-        :param test_env: test env
-        :param model: model
-        :param cur_sfc_index: cur processing sfc index
-        :return: action index sets
-        """
-        action_index_set = []
-        for i in range(len(model.topo.nodes)):
-            if not self.verify_active(model, cur_sfc_index, i, test_env):
-                continue
-            if test_env == TestEnv.NoBackup:
-                action_index_set.append(i)
-                continue
-            for j in range(len(model.topo.nodes)):
-                if i != j and self.verify_standby_for_tgt(model, cur_sfc_index, i, j, test_env):
-                    action_index_set.append(i * len(model.topo.nodes) + j)
-        return action_index_set
-
-    def __init__(self, net: DQN, tgt_net: DQN, buffer: ExperienceBuffer, action_space: List, gamma: float, epsilon_start: float, epsilon: float, epsilon_final: float, epsilon_decay: float, model: Model, device: torch.device = torch.device("cpu")):
+    def __init__(self, net: DQN, tgt_net: DQN, buffer: ExperienceBuffer, action_space: List, gamma: float,
+                 epsilon_start: float, epsilon: float, epsilon_final: float, epsilon_decay: float, model: Model,
+                 device: torch.device = torch.device("cpu")):
         super().__init__()
         self.net = net
         self.tgt_net = tgt_net
@@ -252,13 +111,21 @@ class DQNDecisionMaker(DecisionMaker):
         self.gamma = gamma
         self.idx = 0
         self.nodes_num = len(model.topo.nodes)
-        self.forbidden_action_index_tensor = torch.tensor([[1 if i == j else 0 for i in range(self.nodes_num) for j in range(self.nodes_num)]], device=self.device, dtype=torch.bool)
         self.forbidden_action_index = [1 if i == j else 0 for i in range(self.nodes_num) for j in range(self.nodes_num)]
+        self.forbidden_action_index_tensor = torch.tensor([self.forbidden_action_index], device=self.device, dtype=torch.bool)  # forbid the same placement
 
+    def generate_decision(self, model: Model, sfc_index: int, state: List, test_env: TestEnv):
+        """
+        generate decision for deploying
 
-    def generate_decision(self, model: Model, cur_sfc_index: int, state: List, test_env: TestEnv):
-        if self.net.tgt:
-            # action_indexs = self.narrow_action_index_set_for_tgt(model, cur_sfc_index, test_env)
+        :param model: model
+        :param sfc_index: current sfc index
+        :param state: make decision according to this state
+        :param test_env: test environment
+        :return: Decision decision
+        """
+        if self.net.tgt: # when target DQN is running
+            # action_indexs = self.narrow_action_index_set_for_tgt(model, sfc_index, test_env)
             action_indexs = []
             if len(action_indexs) != 0:
                 action_indexs = torch.tensor(action_indexs, device=self.device)
@@ -267,11 +134,12 @@ class DQNDecisionMaker(DecisionMaker):
             self.net.eval()
             q_vals_v = self.net(state_v)  # input to network, and get output
             q_vals_v[self.forbidden_action_index_tensor] = -999
-            q_vals_v = torch.index_select(q_vals_v, dim=1, index=action_indexs) if len(action_indexs) != 0 else q_vals_v # select columns
+            q_vals_v = torch.index_select(q_vals_v, dim=1, index=action_indexs) if len(
+                action_indexs) != 0 else q_vals_v  # select columns
             _, act_v = torch.max(q_vals_v, dim=1)  # get the max index
             action_index = action_indexs[int(act_v.item())] if len(action_indexs) != 0 else act_v.item()
-        else:
-            # action_indexs = self.narrow_action_index_set_for_tgt(model, cur_sfc_index, test_env)
+        else: # when sample DQN is running
+            # action_indexs = self.narrow_action_index_set_for_tgt(model, sfc_index, test_env)
             action_indexs = []
             if len(action_indexs) != 0:
                 action_indexs = torch.tensor(action_indexs, device=self.device)
@@ -289,11 +157,11 @@ class DQNDecisionMaker(DecisionMaker):
                 self.net.eval()
                 q_vals_v = self.net(state_v)  # input to network, and get output
                 q_vals_v[self.forbidden_action_index_tensor] = -999
-                q_vals_v = torch.index_select(q_vals_v, dim=1, index=action_indexs) if len(action_indexs) != 0 else q_vals_v # select columns
+                q_vals_v = torch.index_select(q_vals_v, dim=1, index=action_indexs) if len(
+                    action_indexs) != 0 else q_vals_v  # select columns
                 _, act_v = torch.max(q_vals_v, dim=1)  # get the max index
                 action_index = action_indexs[int(act_v.item())] if len(action_indexs) != 0 else act_v.item()
         action = self.action_space[action_index]
-        # print(action)
         decision = Decision()
         decision.active_server = action[0]
         decision.standby_server = action[1]
@@ -309,20 +177,43 @@ class DQNAction(Action):
         self.standby = standby
 
     def get_action(self):
-        return [self.active, self.standby]
+        """
+        get an action tuple
 
-    def action2index(self, action_space: List):
-        for i in range(len(action_space)):
-            if action_space[i][0] == self.active and action_space[i][1] == self.standby:
-                return i
-        raise RuntimeError("The action space doesn't contain this action")
+        :return: (int, int) action tuple
+        """
+        return self.active, self.standby
+
+    def action2index(self, nodes_number: int):
+        """
+        transfer self to action index
+
+        :param nodes_number: int
+        :return: int action index
+        """
+        return self.active * nodes_number + self.standby
 
 
-def calc_loss(batch, net, tgt_net, gamma: float, action_space: List, double: bool, device: torch.device):
+def calc_loss(batch, net, tgt_net, gamma: float, nodes_number: int, double: bool, device: torch.device):
+    """
+    calculate loss based on batch, net and target net
+
+    feed the states and actions in batch into sample net to get Q-value, then feed the next states in batch and
+    next actions into target net to get target Q-value, based on "Q * gamma + rewards_v" and "new Q" to calculate loss
+
+    :param batch: batch
+    :param net: sample net
+    :param tgt_net: target net
+    :param gamma: gamma
+    :param nodes_number: nodes number
+    :param double: if DDQN or not
+    :param device: device
+    :return: nn.MSELoss loss
+    """
     states, actions, rewards, dones, next_states = batch
 
-    # transform each action to index(real action)
-    actions = [DQNAction(action[0], action[1]).action2index(action_space) for action in actions]
+    # transform each action to action index
+    actions = [DQNAction(action[0], action[1]).action2index(nodes_number) for action in actions]
 
     states_v = torch.tensor(states, dtype=torch.float).to(device)
     next_states_v = torch.tensor(next_states, dtype=torch.float).to(device)
@@ -330,12 +221,10 @@ def calc_loss(batch, net, tgt_net, gamma: float, action_space: List, double: boo
     rewards_v = torch.tensor(rewards, dtype=torch.float).to(device)
     done_mask = torch.tensor(dones, dtype=torch.bool).to(device)
 
-
     # action is a list with one dimension, we should use unsqueeze() to span it
     state_action_values = net(states_v).to(device)
     state_action_values = state_action_values.gather(1, actions_v.unsqueeze(-1))
     state_action_values = state_action_values.squeeze(-1)
-
 
     if double:
         next_state_actions = net(next_states_v).max(1)[1]
@@ -354,53 +243,51 @@ class DQNEnvironment(Environment):
     def __init__(self):
         super().__init__()
 
-    def get_reward(self, model: Model, sfc_index: int, decision: Decision, test_env: TestEnv):
+    def get_reward(self, model: Model, sfc_index: int):
+        """
+        get reward
+
+        :param model: model
+        :param sfc_index: sfc index
+        :return: double reward
+        """
         if model.sfc_list[sfc_index].state == State.Failed:
             return -1
         if model.sfc_list[sfc_index].state == State.Normal:
             return 1
 
-        # reward -= model.topo.nodes(data=True)[decision.standby_server]["fail_rate"]
-        # reward = reward - model.topo.nodes(data=True)[decision.standby_server]["fail_rate"]
-
     def get_state(self, model: Model, sfc_index: int):
         """
-        Get the state of current network.
+        get the state of environment
+
+        mainly has two parts:
+        1. state of topology
+        2. state of sfc
+
         :param model: model
-        :param sfc_indexs: sfc indexs
-        :param process_capacity: process capacity
-        :return: state vector, done
+        :param sfc_index: sfc index
+        :return: ([double], bool) state and if it is terminal state
         """
         state = []
         node_len = len(model.topo.nodes)
 
         # first part: topo state
         # 1. node state
-        max_v = 0
-        for node in model.topo.nodes(data=True):
-            if node[1]['computing_resource'] > max_v:
-                max_v = node[1]['computing_resource']
-        max_f = 0
-        for node in model.topo.nodes(data=True):
-            if node[1]['fail_rate'] > max_f:
-                max_f = node[1]['fail_rate']
+        max_v = max(node[1]['computing_resource'] for node in model.topo.nodes(data=True))
+        max_f = max(node[1]['fail_rate'] for node in model.topo.nodes(data=True))
+
         for node in model.topo.nodes(data=True):
             state.append(node[1]['fail_rate'] / max_f)
-            state.append((node[1]['computing_resource'] - node[1]['active'])/ max_v)
+            state.append((node[1]['computing_resource'] - node[1]['active']) / max_v)
             if node[1]['reserved'] == float('-inf'):
                 state.append(0)
             else:
                 state.append(node[1]['reserved'] / max_v)
 
         # 2. edge state
-        max_e = 0
-        for edge in model.topo.edges(data=True):
-            if edge[2]['bandwidth'] > max_e:
-                max_e = edge[2]['bandwidth']
-        max_l = 0
-        for edge in model.topo.edges(data=True):
-            if edge[2]['latency'] > max_l:
-                max_l = edge[2]['latency']
+        max_e = max(edge[2]['bandwidth'] for edge in model.topo.edges(data=True))
+        max_l = max(edge[2]['latency'] for edge in model.topo.edges(data=True))
+
         for edge in model.topo.edges(data=True):
             state.append(edge[2]['latency'] / max_l)
             state.append((edge[2]['bandwidth'] - edge[2]['active']) / max_e)
@@ -409,7 +296,7 @@ class DQNEnvironment(Environment):
             else:
                 state.append(edge[2]['reserved'] / max_e)
 
-        # the sfcs located in this time slot state
+        # second part
         sfc = model.sfc_list[sfc_index] if sfc_index < len(model.sfc_list) else model.sfc_list[sfc_index - 1]
         state.append(sfc.computing_resource / max_v)
         state.append(sfc.tp / max_e)
@@ -418,27 +305,4 @@ class DQNEnvironment(Environment):
         state.append(sfc.process_latency / max_l)
         state.append(sfc.s)
         state.append(sfc.d)
-        return state, False
-
-        #second part
-        #current sfc hasn't been deployed
-        # if sfc_index == len(model.sfc_list) - 1 or model.sfc_list[sfc_index].state == State.Undeployed:
-        #     sfc = model.sfc_list[sfc_index]
-        #     state.append(sfc.computing_resource)
-        #     state.append(sfc.tp)
-        #     state.append(sfc.latency)
-        #     state.append(sfc.update_tp)
-        #     state.append(sfc.process_latency)
-        #     state.append(sfc.s)
-        #     state.append(sfc.d)
-        #
-        # #current sfc has been deployed
-        # elif model.sfc_list[sfc_index].state == State.Normal or model.sfc_list[sfc_index].state == State.Failed:
-        #     sfc = model.sfc_list[sfc_index + 1]
-        #     state.append(sfc.computing_resource)
-        #     state.append(sfc.tp)
-        #     state.append(sfc.latency)
-        #     state.append(sfc.update_tp)
-        #     state.append(sfc.process_latency)
-        #     state.append(sfc.s)
-        #     state.append(sfc.d)
+        return tuple(state), False
