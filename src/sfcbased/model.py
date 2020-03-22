@@ -3,6 +3,7 @@ import networkx as nx
 from enum import Enum, unique
 import random
 from abc import abstractmethod
+import math
 
 
 class VirtualException(BaseException):
@@ -247,13 +248,26 @@ class SFC(BaseObject):
         self.process_latency = process_latency
         self.s = s
         self.d = d
-        self.time = time
+        self.arriving_time = time
         self.TTL = TTL
+        self.failed_num = 0
 
         self.state = State.Undeployed
         self.update_path = VariableState.Uninitialized
         self.active_sfc = ACSFC()
         self.standby_sfc = SBSFC()
+
+    @property
+    def time(self):
+        """
+        this property represents the real deploy time
+
+        :return: float
+        """
+        if self.failed_num == 0:
+            return self.arriving_time
+        else:
+            return self.arriving_time + math.pow(2, self.failed_num - 1)
 
     def __str__(self):
         """
@@ -266,7 +280,7 @@ class SFC(BaseObject):
             self.tp,
             self.latency, self.update_tp,
             self.process_latency,
-            self.s, self.d, self.time, self.TTL)
+            self.s, self.d, self.arriving_time, self.TTL)
 
     def set_state(self, cur_time: int, sfc_index: int, new_state: State, reason: BrokenReason = BrokenReason.NoReason):
         """
@@ -278,7 +292,6 @@ class SFC(BaseObject):
         :param new_state: new state
         :return: None
         """
-
         # Monitor the state transition
         Monitor.state_transition(cur_time, sfc_index, self.state, new_state, reason)
 
@@ -304,6 +317,9 @@ class SFC(BaseObject):
                     self.standby_sfc.downtime = self.time + self.TTL
                 else:
                     self.standby_sfc.downtime = cur_time
+        if self.state == State.Failed:
+            if new_state == State.Normal:
+                self.active_sfc.starttime = self.time
 
         self.state = new_state
 
@@ -361,7 +377,14 @@ class Model(BaseObject):
 
         :return: float total reward
         """
-        return sum(-1 if sfc.state == State.Failed else 1 for sfc in self.sfc_list)
+        total_success = 0
+        total_failed = 0
+        for sfc in self.sfc_list:
+            total_failed += sfc.failed_num
+            if sfc.state != State.Failed:
+                total_success += 1
+
+        return total_success - total_failed
 
     def calculate_accepted_number(self):
         """

@@ -15,12 +15,13 @@ def deploy_sfc_item(model: Model, sfc_index: int, decision_maker: DecisionMaker,
     :param test_env: test environment
     :return: Decision
     """
-    assert model.sfc_list[sfc_index].state == State.Undeployed
+    assert model.sfc_list[sfc_index].state == State.Undeployed or model.sfc_list[sfc_index].state == State.Failed
     flag, decision = make_decision(model, decision_maker, sfc_index, state, test_env)
 
     # Undeployed→Failed
     if not flag:
         model.sfc_list[sfc_index].set_state(time, sfc_index, State.Failed)
+        model.sfc_list[sfc_index].failed_num += 1
         return decision
 
     # backup condition
