@@ -264,10 +264,7 @@ class SFC(BaseObject):
 
         :return: float
         """
-        if self.failed_num == 0:
-            return self.arriving_time
-        else:
-            return self.arriving_time + math.pow(2, self.failed_num - 1)
+        return self.arriving_time + math.pow(2, self.failed_num) - 1
 
     def __str__(self):
         """
@@ -375,7 +372,7 @@ class Model(BaseObject):
         """
         calculate total reward
 
-        :return: float total reward
+        :return: int total reward
         """
         total_success = 0
         total_failed = 0
@@ -385,6 +382,51 @@ class Model(BaseObject):
                 total_success += 1
 
         return total_success - total_failed
+
+    def calculate_place_num(self):
+        """
+        calculate total place num
+
+        :return: int placement number
+        """
+        total_success = 0
+        total_failed = 0
+        for sfc in self.sfc_list:
+            total_failed += sfc.failed_num
+            if sfc.state != State.Failed:
+                total_success += 1
+
+        return total_success + total_failed
+
+    def calculate_place_cdf(self, num = 10):
+        """
+        calculate place cdf
+
+        :param num: max plot place number
+        :return: List[float] cdf
+        """
+        res = [0 for _ in range(num + 1)]
+
+        for sfc in self.sfc_list:
+            if sfc.failed_num < num:
+                if sfc.state == State.Failed:
+                    res[sfc.failed_num] += 1
+                else:
+                    res[sfc.failed_num + 1] += 1
+
+        total = sum(res)
+        for i in range(1, num + 1):
+            res[i] += res[i - 1]
+
+        for i in range(num + 1):
+            res[i] /= total
+
+        return res
+
+
+
+
+
 
     def calculate_accepted_number(self):
         """

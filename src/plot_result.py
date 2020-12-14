@@ -13,8 +13,110 @@ from matplotlib.lines import Line2D
 path_prefix = "..\\result\\" if pf == "Windows" else "../result/"  # file name
 
 dpi = 100
-fontsize = 14
+fontsize = 17
 hvretio = 7.5
+
+
+def average_placement_number_with_ddqp():
+    # under AboveNet
+    base_num = 3000
+    level_0 = 9261.4
+    level_1 = 12266.0
+    level_2 = 12652.2
+    level_3 = 13411.6
+    level_4 = 15148.0
+
+    higher_0 = level_0 / base_num - 1
+    higher_1 = level_1 / base_num - 1
+    higher_2 = level_2 / base_num - 1
+    higher_3 = level_3 / base_num - 1
+    higher_4 = level_4 / base_num - 1
+    print("place num higher than base:  0: {}, 1: {}, 2: {}, 3: {}, 4: {}".format(higher_0,higher_1,higher_2,higher_3,higher_4))
+    print("average higher than ddqp: {}".format((higher_0+higher_1+higher_2+higher_3+higher_4)/5))
+    plt.ylabel('Average Placement Times/DDQP', fontsize=fontsize)
+
+    labels = ["Level 0", "Level 1", "Level 2", "Level 3", "Level 4"]
+    plt.ylim(0, 6)
+    plt.xlim(0, 5.2)
+    index = [0.6, 1.6, 2.6, 3.6, 4.6]
+    width = 0.4
+    plt.bar(index, [level_0/base_num, level_1/base_num, level_2/base_num, level_3/base_num, level_4/base_num], width, color='#ffffff', lw=1, edgecolor="#992020", hatch="//")
+    plt.hlines(1.0, 0, 5.2, colors="#992020", lw = 2, linestyles="--")
+    plt.plot(index, [level_0/base_num, level_1/base_num, level_2/base_num, level_3/base_num, level_4/base_num], color='#992020', lw=1, marker="^")
+    plt.xticks(index, labels=labels, fontsize=fontsize)
+    plt.grid(color='grey', linestyle='--', linewidth=1, alpha=0.5)
+    fig = matplotlib.pyplot.gcf()
+    fig.set_size_inches(hvretio, 5)
+    fig.savefig(path_prefix + 'place_num_o.png', dpi=dpi)
+    plt.show()
+
+
+def average_miscellaneous_with_ddqp():
+    # under AboveNet
+    # ac_rate, throughput, service aval, new, new, new
+    level_0 = [0.6770858618051037, 155596.8, 8056.510330516324, 0.7946, 189169.81571854377, 9812.155090970195]
+    level_1 = [0.5763724710004128, 133344.4, 10648.866775249731, 0.6900666666666666, 160309.0254239315, 12421.783160416564]
+    level_2 = [0.5740397074084246, 128299.4, 10324.997092683156, 0.6832, 159124.99480418232, 12485.732767713442]
+    level_3 = [0.5275849346928109, 120891.4, 9881.575302718624, 0.6402666666666667, 147165.9831101965, 11833.900114807171]
+    level_4 = [0.4512420435229146, 101885.4, 8334.690383849353, 0.5616, 129485.51260417071, 10406.027043670922]
+
+    plt.ylim(0.75, 1.5)
+
+    higher_ac = (level_0[3]/level_0[0] + level_1[3]/level_1[0] + level_2[3]/level_2[0] + level_3[3]/level_3[0] + level_4[3]/level_4[0]) / 5 - 1
+    higher_tp = (level_0[4]/level_0[1] + level_1[4]/level_1[1] + level_2[4]/level_2[1] + level_3[4]/level_3[1] + level_4[4]/level_4[1]) / 5 - 1
+    higher_sa = (level_0[5]/level_0[2] + level_1[5]/level_1[2] + level_2[5]/level_2[2] + level_3[5]/level_3[2] + level_4[5]/level_4[2]) / 5 - 1
+    print("ac higher than o: {}, tp higher than o: {}, sa higher than 0: {}".format(higher_ac, higher_tp, higher_sa))
+    plt.ylabel('Performance/DDQP', fontsize=fontsize)
+
+    labels = ["Level 0", "Level 1", "Level 2", "Level 3", "Level 4"]
+
+    ac_index = [0.4, 1.4, 2.4, 3.4, 4.4]
+    tp_index = [0.6, 1.6, 2.6, 3.6, 4.6]
+    sa_index = [0.8, 1.8, 2.8, 3.8, 4.8]
+    plt.xlim(0, 5.2)
+
+    label_index = [0.6, 1.6, 2.6, 3.6, 4.6]
+    width = 0.16
+
+    plt.bar(ac_index, [level_0[3]/level_0[0], level_1[3]/level_1[0], level_2[3]/level_2[0], level_3[3]/level_3[0], level_4[3]/level_4[0]], width, color="#0d7263", label="Acceptance Ratio",
+            lw=1, edgecolor="black")
+    plt.bar(tp_index, [level_0[4]/level_0[1], level_1[4]/level_1[1], level_2[4]/level_2[1], level_3[4]/level_3[1], level_4[4]/level_4[1]], width, color='#ef8935', label="Throughput",
+            lw=1, edgecolor="black")
+    plt.bar(sa_index, [level_0[5]/level_0[2], level_1[5]/level_1[2], level_2[5]/level_2[2], level_3[5]/level_3[2], level_4[5]/level_4[2]], width, color='#992020', label="Service Availability",
+            lw=1, edgecolor="black")
+    plt.hlines(1.0, 0, 5.2, colors="#132486", lw = 2, linestyles="--")
+
+    plt.xticks(label_index, labels=labels, fontsize=fontsize)
+    plt.grid(color='grey', linestyle='--', linewidth=1, alpha=0.5)
+    plt.legend(fontsize=15)
+
+    fig = matplotlib.pyplot.gcf()
+    fig.set_size_inches(hvretio, 5)
+    fig.savefig(path_prefix + 'miscellaneous_o.png', dpi=dpi)
+    plt.show()
+
+
+def placement_num_cdf():
+    level_0 = [0.0, 0.46693987305899476, 0.5809251433268117, 0.6833138771601763, 0.7601478280330987, 0.8124024514478643, 0.858564985608734, 0.9130178062773849, 0.9996572282573911, 1.0]
+    level_1 = [0.0, 0.30145118300511187, 0.38868756134686544, 0.4894246818267928, 0.5798671825484115, 0.6675098531926081, 0.762433327753752, 0.8642035051120709, 0.9984221068012873, 1.0]
+    level_2 = [0.0, 0.2801736876280589, 0.36846634878904994, 0.46825932564850126, 0.5625382004923216, 0.6540636055193679, 0.7503436533774102, 0.8589580983604469, 0.9979310672453356, 1.0]
+    level_3 = [0.0, 0.2511081727163584, 0.33068274250388807, 0.42716002558600585, 0.5162019275498893, 0.6099959063952357, 0.7155892037942577, 0.8407240337647565, 0.9979279120771555, 1.0]
+    level_4 = [0.0, 0.17240790273151815, 0.24405164878802982, 0.3281944499883993, 0.41888223661845875, 0.5191596623781378, 0.6411598228122675, 0.7978802075834868, 0.9963881801471428, 1.0]
+
+    plt.ylabel('CDF', fontsize=fontsize)
+    plt.xlabel("Placement Times", fontsize=fontsize)
+    plt.plot(level_0, color="#1b77aa", linewidth=1, label="Level 0", marker="^")
+    plt.plot(level_1, color="#0d7263", linewidth=1, label="Level 1", marker="s")
+    plt.plot(level_2, color="#ef8935", linewidth=1, label="Level 2", marker="p")
+    plt.plot(level_3, color="#992020", linewidth=1, label="Level 3", marker="d")
+    plt.plot(level_4, color="#000000", linewidth=1, label="Level 4", marker="X")
+    plt.legend(fontsize=15)
+    plt.grid(color='grey', linestyle='--', linewidth=1, alpha=0.5)
+
+    fig = matplotlib.pyplot.gcf()
+    fig.set_size_inches(hvretio, 5)
+    fig.savefig(path_prefix + 'cdfs.png', dpi=dpi)
+    plt.show()
 
 
 def plot_acceptance_rate_between_algorithms():
@@ -495,14 +597,17 @@ def plot_real_fail_rate_between_configs():
 
 if __name__ == "__main__":
     fig = plt.figure()
-    plot_acceptance_rate_between_algorithms()
-    plot_throughput_between_algorithms()
-    plot_service_time_between_algorithms()
-    plot_total_reward_between_algorithms()
-    plot_running_time_cost_between_algorithms()
+    # plot_acceptance_rate_between_algorithms()
+    # plot_throughput_between_algorithms()
+    # plot_service_time_between_algorithms()
+    # plot_total_reward_between_algorithms()
+    # plot_running_time_cost_between_algorithms()
     # plot_reward_trace()
-    plot_acceptance_rate_between_configs()
-    plot_real_fail_rate_between_configs()
-    plot_service_time_between_configs()
-    plot_total_reward_between_configs()
-    plot_throughput_between_configs()
+    # plot_acceptance_rate_between_configs()
+    # plot_real_fail_rate_between_configs()
+    # plot_service_time_between_configs()
+    # plot_total_reward_between_configs()
+    # plot_throughput_between_configs()
+    average_placement_number_with_ddqp()
+    average_miscellaneous_with_ddqp()
+    placement_num_cdf()

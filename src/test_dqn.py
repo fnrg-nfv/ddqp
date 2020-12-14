@@ -30,6 +30,8 @@ if __name__ == "__main__":
     total_rewards = []
     accept_rates = []
     accept_nums = []
+    place_nums = []
+    cdfs = [0 for _ in range(9 + 1)]
     real_fail_rate = 0
     for it in range(0, ITERATIONS):
         action_list = []
@@ -63,15 +65,20 @@ if __name__ == "__main__":
 
         # Monitor.print_log()
         # model.print_start_and_down()
-        plot_action_distribution(action_list, num_nodes=topo_size)
+        # plot_action_distribution(action_list, num_nodes=topo_size)
 
-        fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_num, accept_rate = report(model)
+        fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_num, place_num, accept_rate, place_cdf = report(model)
         fail_rates.append(fail_rate)
         throughputs.append(throughput)
         service_times.append(service_time)
         total_rewards.append(total_reward)
         accept_rates.append(accept_rate)
         accept_nums.append(accept_num)
+        place_nums.append(place_num)
+        for i in range(9 + 1):
+            cdfs[i] += place_cdf[i]
+    for i in range(9 + 1):
+        cdfs[i] /= ITERATIONS
     print("avg fail rate: ", sum(fail_rates)/len(fail_rates))
     print("avg real fail rate: ", real_fail_rate)
     print("avg throughput: ", sum(throughputs)/len(throughputs))
@@ -79,3 +86,5 @@ if __name__ == "__main__":
     print("avg total reward: ", sum(total_rewards)/len(total_rewards))
     print("avg accept nums: ", sum(accept_nums) / len(accept_nums))
     print("avg accept rate: ", sum(accept_rates)/len(accept_rates))
+    print("avg place num: ", sum(place_nums)/len(place_nums))
+    print("avg cdfs: ", cdfs)

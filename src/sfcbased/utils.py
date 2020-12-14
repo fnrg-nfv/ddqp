@@ -114,6 +114,8 @@ def report(model: Model):
     total_reward = model.calculate_total_reward()
     accept_rate = model.calculate_accept_rate()
     accept_num = model.calculate_accepted_number()
+    place_num = model.calculate_place_num()
+    place_cdf = model.calculate_place_cdf(num=9)
     # server_rate = model.calculate_server_occupied_rate()
     # link_rate = model.calculate_link_occupied_rate()
 
@@ -123,10 +125,12 @@ def report(model: Model):
     print("service availability: ", service_availability)
     print("total reward: ", total_reward)
     print("accept num: ", accept_num)
+    print("place num: ", place_num)
     print("accept rate: ", accept_rate)
+    print("place cdf: ", place_cdf)
     # print("server rate: ", server_rate)
     # print("link rate: ", link_rate)
-    return fail_rate, real_fail_rate, throughput, service_availability, total_reward, accept_num, accept_rate
+    return fail_rate, real_fail_rate, throughput, service_availability, total_reward, accept_num, place_num, accept_rate, place_cdf
 
 
 def main():
