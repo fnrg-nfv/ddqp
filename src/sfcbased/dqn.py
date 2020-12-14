@@ -114,6 +114,26 @@ class DQNDecisionMaker(DecisionMaker):
         self.forbidden_action_index = [1 if i == j else 0 for i in range(self.nodes_num) for j in range(self.nodes_num)]
         self.forbidden_action_index_tensor = torch.tensor([self.forbidden_action_index], device=self.device, dtype=torch.bool)  # forbid the same placement
 
+    def append_sample(self, exp: Experience, gamma: float):
+        if isinstance(self.buffer, ExperienceBuffer):
+            self.buffer.append(exp)
+        elif isinstance(self.buffer, PrioritizedExperienceBuffer):
+            states_v = torch.tensor([exp.state], dtype=torch.float).to(self.device)
+            next_states_v = torch.tensor([exp.new_state], dtype=torch.float).to(self.device)
+            actions_v = torch.tensor([exp.action], dtype=torch.long).to(self.device)
+            rewards_v = torch.tensor([exp.reward], dtype=torch.float).to(self.device)
+            done_mask = torch.tensor([exp.done], dtype=torch.bool).to(self.device)
+            state_action_values = self.net(states_v).to(self.device)
+            state_action_values = state_action_values.gather(1, actions_v.unsqueeze(-1))
+            state_action_values = state_action_values.squeeze(-1)
+            next_state_actions = self.net(next_states_v).max(1)[1]
+            next_state_values = self.tgt_net(next_states_v).gather(
+                1, next_state_actions.unsqueeze(-1)).squeeze(-1)
+            expected_state_action_values = next_state_values * gamma * done_mask + rewards_v
+            td_errors = expected_state_action_values - state_action_values
+            td_error = abs(td_errors.sum())
+            self.buffer.append(float(td_error), exp)
+
     def generate_decision(self, model: Model, sfc_index: int, state: List, test_env: TestEnv):
         """
         generate decision for deploying
@@ -162,6 +182,178 @@ class DQNDecisionMaker(DecisionMaker):
                 _, act_v = torch.max(q_vals_v, dim=1)  # get the max index
                 action_index = action_indexs[int(act_v.item())] if len(action_indexs) != 0 else act_v.item()
         action = self.action_space[action_index]
+        decision = Decision()
+        decision.active_server = action[0]
+        decision.standby_server = action[1]
+        self.epsilon = max(self.epsilon_final, self.epsilon_start - self.idx / self.epsilon_decay)
+        self.idx += 1
+        return decision
+
+
+class BranchingQNetwork(nn.Module):
+    def __init__(self, state_len: int, dimensions: int, actions_per_dimension: int, is_tgt: bool, is_fc: bool,
+                 device: torch.device):
+        super(BranchingQNetwork, self).__init__()
+        self.is_tgt = is_tgt
+        self.is_fc = is_fc
+        self.device = device
+        self.num = 32  # node nums
+
+        # scales
+        self.state_len = state_len
+        self.dimensions = dimensions
+        self.actions_per_dimension = actions_per_dimension
+
+        ## self.before_bn = nn.BatchNorm1d(self.state_len)
+        self.shared_model = nn.Sequential(nn.Linear(self.state_len, self.num),
+                                          nn.LeakyReLU(),
+                                          ## nn.BatchNorm1d(self.num),
+                                          nn.Linear(self.num, self.num),
+                                          nn.LeakyReLU(),
+                                          nn.Linear(self.num, self.num),
+                                          nn.LeakyReLU())
+
+        self.value_head = nn.Sequential(nn.Linear(self.num, self.num),
+                                        nn.LeakyReLU(),
+                                        nn.Linear(self.num, self.num),
+                                        nn.LeakyReLU(),
+                                        nn.Linear(self.num, 1))
+
+        self.shared_model[0].weight.data.uniform_(-0.0001, 0.0001)
+        self.shared_model[2].weight.data.uniform_(-0.0001, 0.0001)
+        self.shared_model[4].weight.data.uniform_(-0.0001, 0.0001)
+        self.value_head[0].weight.data.uniform_(-0.0001, 0.0001)
+        self.value_head[2].weight.data.uniform_(-0.0001, 0.0001)
+        self.value_head[4].weight.data.uniform_(-0.0001, 0.0001)
+
+        if self.is_fc:
+            self.adv_heads = nn.Sequential(nn.Linear(self.num, self.num * self.dimensions),
+                                           nn.LeakyReLU(),
+                                           nn.Linear(self.num * self.dimensions, self.num * self.dimensions),
+                                           nn.LeakyReLU(),
+                                           nn.Linear(self.num * self.dimensions,
+                                                     self.actions_per_dimension * self.dimensions))
+            self.adv_heads[0].weight.data.uniform_(-0.0001, 0.0001)
+            self.adv_heads[2].weight.data.uniform_(-0.0001, 0.0001)
+            self.adv_heads[4].weight.data.uniform_(-0.0001, 0.0001)
+        else:
+            self.adv_heads = nn.ModuleList(
+                [nn.Sequential(nn.Linear(self.num, self.num),
+                               nn.LeakyReLU(),
+                               nn.Linear(self.num, self.num),
+                               nn.LeakyReLU(),
+                               nn.Linear(self.num, self.actions_per_dimension)) for i in range(self.dimensions)])
+            for layer in self.adv_heads:
+                layer[0].weight.data.uniform_(-0.0001, 0.0001)
+                layer[2].weight.data.uniform_(-0.0001, 0.0001)
+                layer[4].weight.data.uniform_(-0.0001, 0.0001)
+
+    def forward(self, x: torch.Tensor):
+        x.to(device=self.device)
+
+        ## out = self.after_bn(self.model(self.before_bn(x)))
+        out = self.shared_model(x)
+
+        value = self.value_head(out)
+
+        if self.is_fc:
+            # [batch_size, dimension * act_in_each_dimension]
+            advs = self.adv_heads(out)
+            # [batch_size, dimension * act_in_each_dimension]
+            # [batch_size, dimension, act_in_each_dimension]
+            advs = advs.reshape((len(advs), self.dimensions, self.actions_per_dimension))
+        else:
+            # [dimension, batch_size, act_in_each_dimension] to
+            # [batch_size, dimension, act_in_each_dimension]
+            advs = torch.stack([l(out) for l in self.adv_heads], dim=1)
+
+        # [batch_size, dimension, act_in_each_dimension] to
+        # [batch_size, dimension, 1]
+        mean = advs.mean(2, keepdim=True)
+
+        # [batch_size, 1] to
+        # [batch_size, 1, 1] to
+        # [batch_size, dimension, act_in_each_dimension]
+        q_val = value.unsqueeze(2) + advs - mean
+
+        # [batch_size, dimension, act_in_each_dimension]
+        return q_val
+
+
+class BranchingDecisionMaker(DecisionMaker):
+    def __init__(self, net: DQN, tgt_net: DQN, buffer: ExperienceBuffer, gamma: float,
+                 epsilon_start: float, epsilon: float, epsilon_final: float, epsilon_decay: float, model: Model,
+                 device: torch.device = torch.device("cpu")):
+        super().__init__()
+        self.net = net
+        self.tgt_net = tgt_net
+        self.buffer = buffer
+        self.epsilon = epsilon
+        self.epsilon_start = epsilon_start
+        self.epsilon_final = epsilon_final
+        self.epsilon_decay = epsilon_decay
+        self.device = device
+        self.gamma = gamma
+        self.idx = 0
+        self.nodes_num = len(model.topo.nodes)
+
+    def append_sample(self, exp: Experience, gamma: float):
+        if isinstance(self.buffer, ExperienceBuffer):
+            self.buffer.append(exp)
+        elif isinstance(self.buffer, PrioritizedExperienceBuffer):
+            states = torch.tensor([exp.state]).float().to(self.device)
+            actions = torch.tensor([exp.action]).long().reshape(states.shape[0], -1, 1).to(self.device)
+            rewards = torch.tensor([exp.reward]).float().reshape(-1, 1).to(self.device)
+            next_states = torch.tensor([exp.new_state]).float().to(self.device)
+            masks = torch.tensor([exp.done]).float().reshape(-1, 1).to(self.device)
+            current_q_vals = self.net(states).gather(2, actions).squeeze(-1)
+            argmax = torch.argmax(self.net(next_states), dim=2)
+            next_q_vals = self.tgt_net(next_states).gather(2, argmax.unsqueeze(2)).squeeze(-1)
+            next_q_vals = next_q_vals.mean(1, keepdim=True).expand(next_q_vals.shape)
+            target_q_vals = rewards + next_q_vals * gamma * masks
+            dim_td_errors = target_q_vals - current_q_vals
+            td_error = torch.abs(dim_td_errors).sum()
+            self.buffer.append(float(td_error), exp)
+
+    def generate_decision(self, model: Model, sfc_index: int, state: List, test_env: TestEnv):
+        """
+        generate decision for deploying
+
+        :param model: model
+        :param sfc_index: current sfc index
+        :param state: make decision according to this state
+        :param test_env: test environment
+        :return: Decision decision
+        """
+        if self.net.is_tgt: # when target DQN is running
+            state_a = np.array([state], copy=False)  # make state vector become a state matrix
+            state_v = torch.tensor(state_a, dtype=torch.float, device=self.device)  # transfer to tensor class
+            self.net.eval()
+            q_vals_v = self.net(state_v).squeeze(0)  # input to network, and get output
+            action = torch.argmax(q_vals_v, dim=1)
+            if action[0] == action[1]:
+                q_vals_v[1][action[1]] = float("-inf")
+                action = torch.argmax(q_vals_v, dim=1)
+            assert action[0] != action[1]
+            action = action.tolist()
+        else: # when sample DQN is running
+            if np.random.random() < self.epsilon:
+                action = [0, 0]
+                action[0] = random.randint(0, self.net.actions_per_dimension - 1)
+                action[1] = random.randint(0, self.net.actions_per_dimension - 1)
+                while action[0] == action[1]:
+                    action[1] = random.randint(0, self.net.actions_per_dimension - 1)
+            else:
+                state_a = np.array([state], copy=False)  # make state vector become a state matrix
+                state_v = torch.tensor(state_a, dtype=torch.float, device=self.device)  # transfer to tensor class
+                self.net.eval()
+                q_vals_v = self.net(state_v).squeeze(0)  # input to network, and get output
+                action = torch.argmax(q_vals_v, dim=1)
+                if action[0] == action[1]:
+                    q_vals_v[1][action[1]] = float("-inf")
+                    action = torch.argmax(q_vals_v, dim=1)
+                assert action[0] != action[1]
+                action = action.tolist()
         decision = Decision()
         decision.active_server = action[0]
         decision.standby_server = action[1]
@@ -237,6 +429,91 @@ def calc_loss(batch, net, tgt_net, gamma: float, nodes_number: int, double: bool
 
     expected_state_action_values = next_state_values * gamma + rewards_v
     return nn.MSELoss()(state_action_values, expected_state_action_values)
+
+
+def calc_loss_branching_prio(batch, net, tgt_net, gamma: float, indices, importances, buffer, device: torch.device):
+    is_global = True
+    is_importance = False
+
+    states, actions, rewards, dones, next_states = batch
+
+    # [batch_size, len(global_state)]
+    states = torch.tensor(states).float().to(device)
+
+    # [batch_size, dimension] to
+    # [batch_size, dimension, 1]
+    actions = torch.tensor(actions).long().reshape(states.shape[0], -1, 1).to(device)
+
+    # [batch_size] to
+    # [batch_size, 1]
+    rewards = torch.tensor(rewards).float().reshape(-1, 1).to(device)
+
+    # print("rewards: ", rewards.tolist())
+
+    # [batch_size, len(global_state)]
+    next_states = torch.tensor(next_states).float().to(device)
+
+    # [batch_size] to
+    # [batch_size, 1]
+    masks = torch.tensor(dones).float().reshape(-1, 1).to(device)
+
+    # [batch_size]
+    importances = torch.tensor(importances).float().to(device)
+
+    # only care about the values in specified actions
+    # [batch_size, dimension, act_in_each_dimension] to
+    # [batch_size, dimension, 1] to
+    # [batch_size, dimension]
+    current_q_vals = net(states).gather(2, actions).squeeze(-1)
+
+    with torch.no_grad():
+        # [batch_size, len(global_state)] to
+        # [batch_size, dimension, act_in_each_dimension] to
+        # [batch_size, dimension] (batch of action)
+        argmax = torch.argmax(net(next_states), dim=2)
+
+        # [batch_size, dimension, act_in_each_dimension] gather [batch_size, dimension, 1] to
+        # [batch_size, dimension, 1] to
+        # [batch_size, dimension]
+        next_q_vals = tgt_net(next_states).gather(2, argmax.unsqueeze(2)).squeeze(-1)
+
+        if is_global:
+            # [batch_size, dimension] to
+            # [batch_size, 1] to
+            # [batch_size, dimension]
+            global_next_q_vals = next_q_vals.mean(1, keepdim=True).expand(next_q_vals.shape)
+            next_q_vals = global_next_q_vals
+
+        # [batch_size, dimension]
+        target_q_vals = rewards + next_q_vals * gamma * masks
+
+    # [batch_size, dimension]
+    dim_td_errors = target_q_vals - current_q_vals
+
+    # according to ABA, a new td error for PER should be specified
+    # [batch_size, dimension] to
+    # [batch_size]
+    td_errors = torch.abs(dim_td_errors).sum(1)
+
+    # update td errors
+    buffer.set_priorities(indices, td_errors.tolist())
+
+    # print("td errors: ", td_errors)
+
+    # [batch_size]
+    error_for_each_exp = dim_td_errors.pow(2).sum(1) / dim_td_errors.shape[1]
+
+    # according to ABA, the performance of them are the same
+    if is_importance:
+        return torch.sum(error_for_each_exp * importances)
+    else:
+        return torch.mean(error_for_each_exp)
+
+    # return nn.MSELoss()(, torch.zeros(1).expand(td_errors.shape))
+
+    # loss = torch.tensor((dim_td_errors.pow(2).sum(1) / dim_td_errors.shape[1] * importances).pow(2).sum() / dim_td_errors.shape[0]).float().to(device)
+    # return loss
+    # return nn.MSELoss()(current_q_vals, expected_q_vals.expand(current_q_vals.shape))
 
 
 class DQNEnvironment(Environment):

@@ -1,5 +1,4 @@
 from tqdm import tqdm
-import os
 from generate_topo import *
 from train_dqn import REPLAY_SIZE, EPSILON, EPSILON_START, EPSILON_FINAL, EPSILON_DECAY, GAMMA, STATE_LEN, ACTION_LEN, ACTION_SPACE, TARGET_FILE
 
@@ -31,8 +30,6 @@ if __name__ == "__main__":
     total_rewards = []
     accept_rates = []
     accept_nums = []
-    place_nums = []
-    cdfs = [0 for _ in range(9 + 1)]
     real_fail_rate = 0
     for it in range(0, ITERATIONS):
         action_list = []
@@ -45,7 +42,11 @@ if __name__ == "__main__":
                 sfc_list = generate_sfc_list(topo=topo, process_capacity=process_capacity, size=sfc_size, duration=duration, jitter=jitter)
                 model = Model(topo, sfc_list)
         STATE_SHAPE = (len(model.topo.nodes()) + len(model.topo.edges())) * 3 + 7
-        decision_maker = DQNDecisionMaker(net=tgt_net, tgt_net=tgt_net, buffer=buffer, action_space=ACTION_SPACE, epsilon=EPSILON, epsilon_start=EPSILON_START, epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY, device=DEVICE, gamma=GAMMA, model=model)
+        decision_maker = BranchingDecisionMaker(net=tgt_net, tgt_net=tgt_net, buffer=buffer, gamma=GAMMA,
+                                                epsilon_start=EPSILON_START, epsilon=EPSILON,
+                                                epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY,
+                                                model=model, device=DEVICE)
+
         for cur_time in tqdm(range(0, duration)):
 
             # generate failed instances
@@ -66,20 +67,15 @@ if __name__ == "__main__":
 
         # Monitor.print_log()
         # model.print_start_and_down()
-        # plot_action_distribution(action_list, num_nodes=topo_size)
+        plot_action_distribution(action_list, num_nodes=topo_size)
 
-        fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_num, place_num, accept_rate, place_cdf = report(model)
+        fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_num, accept_rate = report(model)
         fail_rates.append(fail_rate)
         throughputs.append(throughput)
         service_times.append(service_time)
         total_rewards.append(total_reward)
         accept_rates.append(accept_rate)
         accept_nums.append(accept_num)
-        place_nums.append(place_num)
-        for i in range(9 + 1):
-            cdfs[i] += place_cdf[i]
-    for i in range(9 + 1):
-        cdfs[i] /= ITERATIONS
     print("avg fail rate: ", sum(fail_rates)/len(fail_rates))
     print("avg real fail rate: ", real_fail_rate)
     print("avg throughput: ", sum(throughputs)/len(throughputs))
@@ -87,5 +83,3 @@ if __name__ == "__main__":
     print("avg total reward: ", sum(total_rewards)/len(total_rewards))
     print("avg accept nums: ", sum(accept_nums) / len(accept_nums))
     print("avg accept rate: ", sum(accept_rates)/len(accept_rates))
-    print("avg place num: ", sum(place_nums)/len(place_nums))
-    print("avg cdfs: ", cdfs)

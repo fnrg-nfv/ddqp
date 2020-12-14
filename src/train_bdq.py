@@ -25,11 +25,9 @@ EPSILON = 0.0
 EPSILON_START = 1.0
 EPSILON_FINAL = 0.3
 EPSILON_DECAY = 50
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-5
 SYNC_INTERVAL = 500
 TRAIN_INTERVAL = 1
-ACTION_SPACE = generate_action_space(size=topo_size)
-ACTION_LEN = len(ACTION_SPACE)
 # DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 DEVICE = torch.device("cpu")
 ITERATIONS = 10000
@@ -69,18 +67,19 @@ if __name__ == "__main__":
             with open(EXP_REPLAY_FILE, 'rb') as f:
                 buffer = pickle.load(f)  # read file and build object
         else:
-            net = DQN(state_len=STATE_LEN, action_len=ACTION_LEN, device=DEVICE, tgt=False)
-            tgt_net = DQN(state_len=STATE_LEN, action_len=ACTION_LEN, device=DEVICE, tgt=True)
+            net = BranchingQNetwork(state_len=STATE_LEN, dimensions=2, actions_per_dimension=len(model.topo.nodes()), is_tgt=False, is_fc=True,  device=DEVICE)
+            tgt_net = BranchingQNetwork(state_len=STATE_LEN, dimensions=2, actions_per_dimension=len(model.topo.nodes()),
+                                    is_tgt=True, is_fc=True, device=DEVICE)
             for target_param, param in zip(tgt_net.parameters(), net.parameters()):
                 target_param.data.copy_(param.data)
-            buffer = ExperienceBuffer(capacity=REPLAY_SIZE)
+            buffer = PrioritizedExperienceBuffer(capacity=REPLAY_SIZE, alpha=0.6)
         if os.path.exists(TRACE_FILE):
             with open(TRACE_FILE, 'rb') as f:
                 reward_trace = pickle.load(f)  # read file and build object
         else:
             reward_trace = []
 
-        decision_maker = DQNDecisionMaker(net=net, tgt_net=tgt_net, buffer=buffer, action_space=ACTION_SPACE, epsilon=EPSILON, epsilon_start=EPSILON_START, epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY, device=DEVICE, gamma=GAMMA, model=model)
+        decision_maker = BranchingDecisionMaker(net=net, tgt_net=tgt_net, buffer=buffer, gamma=GAMMA, epsilon_start=EPSILON_START, epsilon=EPSILON, epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY, model=model, device=DEVICE)
 
         optimizer = optim.Adam(decision_maker.net.parameters(), lr=LEARNING_RATE)
         # optimizer = optim.SGD(decision_maker.net.parameters(), lr=LEARNING_RATE, momentum=0.9)
@@ -113,7 +112,7 @@ if __name__ == "__main__":
                     next_state, done = env.get_state(model=model, sfc_index=i + 1)
 
                     exp = Experience(state=state, action=action, reward=reward, done=done, new_state=next_state)
-                    decision_maker.buffer.append(exp)
+                    decision_maker.append_sample(exp, GAMMA)
 
                     if len(decision_maker.buffer) < REPLAY_SIZE:
                         continue
@@ -123,8 +122,10 @@ if __name__ == "__main__":
 
                     if idx % TRAIN_INTERVAL == 0:
                         optimizer.zero_grad()
-                        batch = decision_maker.buffer.sample(BATCH_SIZE)
-                        loss_t = calc_loss(batch, decision_maker.net, decision_maker.tgt_net, gamma=GAMMA, nodes_number=topo_size, double=DOUBLE, device=DEVICE)
+                        batch, indices, importances = decision_maker.buffer.sample(BATCH_SIZE)
+                        loss_t = calc_loss_branching_prio(batch, decision_maker.net, decision_maker.tgt_net, GAMMA, indices,
+                                                          importances,
+                                                          decision_maker.buffer, device=DEVICE)
                         loss_t.backward()
                         # print(decision_maker.net.fc7.weight.data)
                         optimizer.step()
@@ -138,7 +139,10 @@ if __name__ == "__main__":
             action_list = []
             tgt_net = decision_maker.tgt_net
             buffer = ExperienceBuffer(capacity=REPLAY_SIZE)
-            decision_maker = DQNDecisionMaker(net=tgt_net, tgt_net=tgt_net, buffer=buffer, action_space=ACTION_SPACE, epsilon=EPSILON, epsilon_start=EPSILON_START, epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY, device=DEVICE, gamma=GAMMA, model=model)
+            decision_maker = BranchingDecisionMaker(net=net, tgt_net=tgt_net, buffer=buffer, gamma=GAMMA,
+                                                    epsilon_start=EPSILON_START, epsilon=EPSILON,
+                                                    epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY,
+                                                    model=model, device=DEVICE)
 
             if load_model:
                 with open(model_file_name, 'rb') as f:

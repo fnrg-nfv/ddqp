@@ -74,6 +74,139 @@ def fanin_init(size, fanin: float, device: torch.device = torch.device("cpu")):
     return torch.Tensor(size).uniform_(-v, v).to(device)
 
 
+class PrioritizedExperienceBuffer(object):  # stored as ( s, a, r, s_ ) in SumTree
+    beta = 0.4
+    beta_increment_per_sampling = 0.001
+
+    def __init__(self, capacity, alpha):
+        self.e = 0.01
+        self.alpha = alpha
+        self.tree = SumTree(capacity)
+        self.capacity = capacity
+
+    def __len__(self):
+        return self.tree.n_entries
+
+    def _get_priority(self, error):
+        return (np.abs(error) + self.e) ** self.alpha
+
+    def append(self, error: float, sample: Experience):
+        p = self._get_priority(error)
+        self.tree.add(p, sample)
+
+    def sample(self, n: int):
+        batch = []
+        idxes = []
+        segment = self.tree.total() / n
+        priorities = []
+
+        # annealing
+        self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])
+
+        for i in range(n):
+            a = segment * i
+            b = segment * (i + 1)
+
+            random_val = random.uniform(a, b)
+            idx, p, data = self.tree.get(random_val)
+            priorities.append(p)
+            batch.append([data.state, data.action, data.reward, data.done, data.new_state])
+            idxes.append(idx)
+
+        # priority normalization
+        sampling_probabilities = np.array(priorities) / self.tree.total()
+
+        # importance sampling weight
+        is_weight = np.power(self.tree.n_entries * sampling_probabilities, -self.beta)
+        is_weight /= is_weight.max()
+
+        return map(list, zip(*batch)), idxes, is_weight
+
+    def set_priorities(self, indices, errors):
+        for i, e in zip(indices, errors):
+            p = self._get_priority(e)
+            self.tree.update(i, p)
+
+
+# a binary tree data structure where the parent’s value is the sum of its children
+class SumTree(object):
+    def __init__(self, capacity: int):
+        self.write = 0
+        self.capacity = capacity # leaf nodes
+        self.tree = np.zeros(2 * capacity - 1) # tree size
+        self.data = np.zeros(capacity, dtype=Experience) # corresponding data
+        self.n_entries = 0
+
+    def _propagate(self, idx: int, change: float):
+        """
+        propagate change to the whole tree
+        :param idx: index
+        :param change: change
+        :return: None
+        """
+        parent = (idx - 1) // 2
+
+        self.tree[parent] += change
+
+        if parent != 0:
+            self._propagate(parent, change)
+
+    def _retrieve(self, idx: int, val: float):
+        """
+        find sample based on value
+        :param idx: idx of tree
+        :param val: value
+        :return: idx on tree leaf
+        """
+        left = 2 * idx + 1
+        right = left + 1
+
+        if left >= len(self.tree):
+            return idx
+
+        if val <= self.tree[left]:
+            return self._retrieve(left, val)
+        else:
+            return self._retrieve(right, val - self.tree[left])
+
+    # sum of all priorities
+    def total(self):
+        return self.tree[0]
+
+    def add(self, p: float, data: Experience):
+        idx = self.write + self.capacity - 1
+
+        self.data[self.write] = data
+        self.update(idx, p)
+
+        self.write += 1
+        if self.write >= self.capacity:
+            self.write = 0
+
+        if self.n_entries < self.capacity:
+            self.n_entries += 1
+
+    # update priority
+    def update(self, idx: int, p: float):
+        """
+        update priority of certain tree node
+        :param idx: idx on tree
+        :param p: priority
+        :return: None
+        """
+        change = p - self.tree[idx]
+
+        self.tree[idx] = p
+        self._propagate(idx, change)
+
+    # get priority and sample from random value
+    def get(self, random_val: float) -> (int, float, Experience):
+        idx = self._retrieve(0, random_val)
+        data_idx = idx - self.capacity + 1
+
+        return idx, self.tree[idx], self.data[data_idx]
+
+
 def plot_action_distribution(action_list: List, num_nodes: int):
     """
     plot the distribution of actions
@@ -119,8 +252,8 @@ def report(model: Model):
     # server_rate = model.calculate_server_occupied_rate()
     # link_rate = model.calculate_link_occupied_rate()
 
-    print("fail rate: ", fail_rate)
-    print("real fail rate: ", real_fail_rate)
+    # print("fail rate: ", fail_rate)
+    # print("real fail rate: ", real_fail_rate)
     print("throughput: ", throughput)
     print("service availability: ", service_availability)
     print("total reward: ", total_reward)
