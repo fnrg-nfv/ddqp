@@ -211,13 +211,13 @@ class BranchingQNetwork(nn.Module):
                                           nn.Linear(self.num, self.num),
                                           nn.LeakyReLU(),
                                           nn.Linear(self.num, self.num),
-                                          nn.LeakyReLU())
+                                          nn.LeakyReLU()).to(self.device)
 
         self.value_head = nn.Sequential(nn.Linear(self.num, self.num),
                                         nn.LeakyReLU(),
                                         nn.Linear(self.num, self.num),
                                         nn.LeakyReLU(),
-                                        nn.Linear(self.num, 1))
+                                        nn.Linear(self.num, 1)).to(self.device)
 
         self.shared_model[0].weight.data.uniform_(-0.0001, 0.0001)
         self.shared_model[2].weight.data.uniform_(-0.0001, 0.0001)
@@ -232,7 +232,7 @@ class BranchingQNetwork(nn.Module):
                                            nn.Linear(self.num * self.dimensions, self.num * self.dimensions),
                                            nn.LeakyReLU(),
                                            nn.Linear(self.num * self.dimensions,
-                                                     self.actions_per_dimension * self.dimensions))
+                                                     self.actions_per_dimension * self.dimensions)).to(self.device)
             self.adv_heads[0].weight.data.uniform_(-0.0001, 0.0001)
             self.adv_heads[2].weight.data.uniform_(-0.0001, 0.0001)
             self.adv_heads[4].weight.data.uniform_(-0.0001, 0.0001)
@@ -242,7 +242,7 @@ class BranchingQNetwork(nn.Module):
                                nn.LeakyReLU(),
                                nn.Linear(self.num, self.num),
                                nn.LeakyReLU(),
-                               nn.Linear(self.num, self.actions_per_dimension)) for i in range(self.dimensions)])
+                               nn.Linear(self.num, self.actions_per_dimension)) for i in range(self.dimensions)]).to(self.device)
             for layer in self.adv_heads:
                 layer[0].weight.data.uniform_(-0.0001, 0.0001)
                 layer[2].weight.data.uniform_(-0.0001, 0.0001)
