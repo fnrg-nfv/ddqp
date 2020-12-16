@@ -14,7 +14,7 @@ topo_file_name = "model\\topo.pkl" if pf == "Windows" else "model/topo.pkl" # fi
 model_file_name = "model\\model.pkl" if pf == "Windows" else "model/model.pkl" # file name
 
 jitter = True
-test_env = TestEnv.NoBackup
+test_env = TestEnv.MaxReservation
 load_model = False
 
 if os.path.exists(topo_file_name) or os.path.exists(model_file_name):

@@ -423,11 +423,6 @@ class Model(BaseObject):
 
         return res
 
-
-
-
-
-
     def calculate_accepted_number(self):
         """
         calculate accepted number
