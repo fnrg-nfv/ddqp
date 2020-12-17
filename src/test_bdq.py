@@ -3,8 +3,8 @@ from generate_topo import *
 from train_dqn import REPLAY_SIZE, EPSILON, EPSILON_START, EPSILON_FINAL, EPSILON_DECAY, GAMMA, STATE_LEN, ACTION_LEN, ACTION_SPACE, TARGET_FILE
 
 # parameters with rl
-# DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+#DEVICE = torch.device("cpu")
 ITERATIONS = 5
 
 # create decision maker(agent) & optimizer & environment
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         # model.print_start_and_down()
         plot_action_distribution(action_list, num_nodes=topo_size)
 
-        fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_num, accept_rate = report(model)
+        fail_rate, real_fail_rate, throughput, service_time, total_reward, accept_num, place_num, accept_rate, place_cdf = report(model)
         fail_rates.append(fail_rate)
         throughputs.append(throughput)
         service_times.append(service_time)
