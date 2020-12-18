@@ -16,7 +16,7 @@ elif pf == "Linux":
 else:
     raise RuntimeError('Platform unsupported')
 
-GAMMA = 0.5
+GAMMA = 0
 BATCH_SIZE = 32 # start with small（32）, then go to big
 
 ACTION_SHAPE = 2
@@ -25,10 +25,11 @@ EPSILON = 0.0
 EPSILON_START = 1.0
 EPSILON_FINAL = 0.3
 EPSILON_DECAY = 50
-LEARNING_RATE = 1e-5
+LEARNING_RATE = 1e-3
 SYNC_INTERVAL = 500
 TRAIN_INTERVAL = 1
 DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+# DEVICE = torch.device("cpu")
 ITERATIONS = 10000
 DOUBLE = True
 TEST = True
@@ -71,7 +72,7 @@ if __name__ == "__main__":
                                     is_tgt=True, is_fc=True, device=DEVICE)
             for target_param, param in zip(tgt_net.parameters(), net.parameters()):
                 target_param.data.copy_(param.data)
-            buffer = PrioritizedExperienceBuffer(capacity=REPLAY_SIZE, alpha=0.6)
+            buffer = PrioritizedExperienceBuffer(capacity=REPLAY_SIZE, alpha=1)
         if os.path.exists(TRACE_FILE):
             with open(TRACE_FILE, 'rb') as f:
                 reward_trace = pickle.load(f)  # read file and build object
@@ -137,7 +138,7 @@ if __name__ == "__main__":
         if TEST:
             action_list = []
             tgt_net = decision_maker.tgt_net
-            buffer = ExperienceBuffer(capacity=REPLAY_SIZE)
+            buffer = PrioritizedExperienceBuffer(capacity=REPLAY_SIZE, alpha=1)
             decision_maker = BranchingDecisionMaker(net=net, tgt_net=tgt_net, buffer=buffer, gamma=GAMMA,
                                                     epsilon_start=EPSILON_START, epsilon=EPSILON,
                                                     epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY,

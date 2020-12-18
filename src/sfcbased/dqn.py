@@ -197,7 +197,7 @@ class BranchingQNetwork(nn.Module):
         self.is_tgt = is_tgt
         self.is_fc = is_fc
         self.device = device
-        self.num = 32  # node nums
+        self.num = 256  # node nums
 
         # scales
         self.state_len = state_len
