@@ -16,6 +16,7 @@ model_file_name = "model\\model.pkl" if pf == "Windows" else "model/model.pkl" #
 jitter = True
 test_env = TestEnv.MaxReservation
 load_model = False
+save_interval = 10
 
 if os.path.exists(topo_file_name) or os.path.exists(model_file_name):
     if load_model:

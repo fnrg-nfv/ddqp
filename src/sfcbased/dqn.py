@@ -281,7 +281,7 @@ class BranchingQNetwork(nn.Module):
 
 
 class BranchingDecisionMaker(DecisionMaker):
-    def __init__(self, net: DQN, tgt_net: DQN, buffer: ExperienceBuffer, gamma: float,
+    def __init__(self, net: DQN, tgt_net: DQN, buffer, gamma: float,
                  epsilon_start: float, epsilon: float, epsilon_final: float, epsilon_decay: float, model: Model,
                  device: torch.device = torch.device("cpu")):
         super().__init__()
@@ -295,7 +295,6 @@ class BranchingDecisionMaker(DecisionMaker):
         self.device = device
         self.gamma = gamma
         self.idx = 0
-        self.nodes_num = len(model.topo.nodes)
 
     def append_sample(self, exp: Experience, gamma: float):
         if isinstance(self.buffer, ExperienceBuffer):

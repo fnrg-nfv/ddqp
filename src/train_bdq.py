@@ -34,6 +34,9 @@ ITERATIONS = 10000
 DOUBLE = True
 TEST = True
 
+LEARNING_FROM_LAST = True if os.path.exists(TARGET_FILE) and os.path.exists(SAMPLE_FILE) and os.path.exists(
+    EXP_REPLAY_FILE) else False
+
 if load_model:
     with open(model_file_name, 'rb') as f:
         model = pickle.load(f)  # read file and build object
@@ -43,46 +46,36 @@ else:
         topo = pickle.load(f)  # read file and build object
         STATE_LEN = len(topo.nodes()) * 3 + len(topo.edges()) * 3 + 7
 
+if LEARNING_FROM_LAST:
+    net = torch.load(SAMPLE_FILE)
+    tgt_net = torch.load(TARGET_FILE)
+    with open(EXP_REPLAY_FILE, 'rb') as f:
+        buffer = pickle.load(f)  # read file and build object
+else:
+    net = BranchingQNetwork(state_len=STATE_LEN, dimensions=2, actions_per_dimension=len(model.topo.nodes() if load_model else topo.nodes()), is_tgt=False, is_fc=True,  device=DEVICE)
+    tgt_net = BranchingQNetwork(state_len=STATE_LEN, dimensions=2, actions_per_dimension=len(model.topo.nodes() if load_model else topo.nodes()),
+                            is_tgt=True, is_fc=True, device=DEVICE)
+    for target_param, param in zip(tgt_net.parameters(), net.parameters()):
+        target_param.data.copy_(param.data)
+    buffer = PrioritizedExperienceBuffer(capacity=REPLAY_SIZE, alpha=1)
+
+if os.path.exists(TRACE_FILE):
+    with open(TRACE_FILE, 'rb') as f:
+        reward_trace = pickle.load(f)  # read file and build object
+else:
+    reward_trace = []
+
+decision_maker = BranchingDecisionMaker(net=net, tgt_net=tgt_net, buffer=buffer, gamma=GAMMA,
+                                        epsilon_start=EPSILON_START, epsilon=EPSILON, epsilon_final=EPSILON_FINAL,
+                                        epsilon_decay=EPSILON_DECAY, model=model, device=DEVICE)
+
 if __name__ == "__main__":
     for it in range(ITERATIONS):
 
-        # create model
-        if load_model:
-            with open(model_file_name, 'rb') as f:
-                model = pickle.load(f)  # read file and build object
-        else:
-            with open(topo_file_name, 'rb') as f:
-                topo = pickle.load(f)  # read file and build object
-                sfc_list = generate_sfc_list(topo, process_capacity, size=sfc_size, duration=duration, jitter=jitter)
-                model = Model(topo=topo, sfc_list=sfc_list)
-
-        LEARNING_FROM_LAST = True if os.path.exists(TARGET_FILE) and os.path.exists(SAMPLE_FILE) and os.path.exists(EXP_REPLAY_FILE) else False
-
-        # create decision maker(agent) & optimizer & environment
-        # create net and target net
-        if LEARNING_FROM_LAST:
-            net = torch.load(SAMPLE_FILE)
-            tgt_net = torch.load(TARGET_FILE)
-            # buffer = ExperienceBuffer(capacity=REPLAY_SIZE)
-            with open(EXP_REPLAY_FILE, 'rb') as f:
-                buffer = pickle.load(f)  # read file and build object
-        else:
-            net = BranchingQNetwork(state_len=STATE_LEN, dimensions=2, actions_per_dimension=len(model.topo.nodes()), is_tgt=False, is_fc=True,  device=DEVICE)
-            tgt_net = BranchingQNetwork(state_len=STATE_LEN, dimensions=2, actions_per_dimension=len(model.topo.nodes()),
-                                    is_tgt=True, is_fc=True, device=DEVICE)
-            for target_param, param in zip(tgt_net.parameters(), net.parameters()):
-                target_param.data.copy_(param.data)
-            buffer = PrioritizedExperienceBuffer(capacity=REPLAY_SIZE, alpha=1)
-        if os.path.exists(TRACE_FILE):
-            with open(TRACE_FILE, 'rb') as f:
-                reward_trace = pickle.load(f)  # read file and build object
-        else:
-            reward_trace = []
-
-        decision_maker = BranchingDecisionMaker(net=net, tgt_net=tgt_net, buffer=buffer, gamma=GAMMA, epsilon_start=EPSILON_START, epsilon=EPSILON, epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY, model=model, device=DEVICE)
+        sfc_list = generate_sfc_list(topo, process_capacity, size=sfc_size, duration=duration, jitter=jitter)
+        model = Model(topo=topo, sfc_list=sfc_list)
 
         optimizer = optim.Adam(decision_maker.net.parameters(), lr=LEARNING_RATE)
-        # optimizer = optim.SGD(decision_maker.net.parameters(), lr=LEARNING_RATE, momentum=0.9)
         env = DQNEnvironment()
 
         # related
@@ -129,17 +122,21 @@ if __name__ == "__main__":
                         loss_t.backward()
                         # print(decision_maker.net.fc7.weight.data)
                         optimizer.step()
-        torch.save(decision_maker.net, SAMPLE_FILE)
-        torch.save(decision_maker.tgt_net, TARGET_FILE)
-        with open(EXP_REPLAY_FILE, 'wb') as f:  # open file with write-mode
-            model_string = pickle.dump(decision_maker.buffer, f)  # serialize and save object
+
+        if it % save_interval == 0:
+            torch.save(decision_maker.net, SAMPLE_FILE)
+            torch.save(decision_maker.tgt_net, TARGET_FILE)
+            with open(EXP_REPLAY_FILE, 'wb') as f:  # open file with write-mode
+                pickle.dump(decision_maker.buffer, f)
+            with open(TRACE_FILE, 'wb') as f:  # open file with write-mode
+                pickle.dump(reward_trace, f)  # serialize and save object
 
         # test
         if TEST:
             action_list = []
             tgt_net = decision_maker.tgt_net
             buffer = PrioritizedExperienceBuffer(capacity=REPLAY_SIZE, alpha=1)
-            decision_maker = BranchingDecisionMaker(net=net, tgt_net=tgt_net, buffer=buffer, gamma=GAMMA,
+            decision_maker = BranchingDecisionMaker(net=tgt_net, tgt_net=tgt_net, buffer=buffer, gamma=GAMMA,
                                                     epsilon_start=EPSILON_START, epsilon=EPSILON,
                                                     epsilon_final=EPSILON_FINAL, epsilon_decay=EPSILON_DECAY,
                                                     model=model, device=DEVICE)
@@ -174,9 +171,6 @@ if __name__ == "__main__":
             # plot_action_distribution(action_list, num_nodes=topo_size)
             total_reward = model.calculate_total_reward()
             reward_trace.append(total_reward)
-
-        with open(TRACE_FILE, 'wb') as f:  # open file with write-mode
-            pickle.dump(reward_trace, f)  # serialize and save object
 
         # Monitor.print_log()
         # model.print_start_and_down()
